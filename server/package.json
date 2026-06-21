@@ -1,0 +1,18 @@
+{
+  "name": "wardrobe-mvp-server",
+  "version": "1.0.0",
+  "description": "Backend for wardrobe economics MVP",
+  "type": "module",
+  "main": "src/app.js",
+  "scripts": {
+    "dev": "node --watch src/app.js",
+    "start": "node src/app.js",
+    "db:reset": "node src/db/reset.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.9.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}
