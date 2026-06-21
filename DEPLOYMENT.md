@@ -43,7 +43,44 @@
 
 6. 可以上传 `.env.example` 文件。
 
-## 四、后端部署到 Render
+## 四、Codex 已准备的配置文件
+
+项目根目录已经准备了这些部署配置文件，用来减少你在网页控制台里手动填写的内容：
+
+- `render.yaml`：用于 Render Blueprint / Web Service 配置参考。它指向 `server` 目录，使用 `npm install` 构建、`npm start` 启动，并设置了 `HOST=0.0.0.0` 和 `DATABASE_PATH=./data/wardrobe.sqlite`。
+- `vercel.json`：用于 Vercel 前端配置参考。它描述了从 `client` 目录安装依赖、执行 Vite build，并输出到 `client/dist`。
+
+仍然需要注意：
+
+- Render 可能仍需要你在网页里连接 GitHub 仓库，并确认 Blueprint 或 Web Service 设置。
+- Vercel 仍需要你在网页里导入 GitHub 仓库，并设置环境变量 `VITE_API_BASE_URL`。
+- Vercel 的 `Root Directory` 必须是：
+
+  ```text
+  client
+  ```
+
+- Render 的 `Root Directory` 必须是：
+
+  ```text
+  server
+  ```
+
+- 后端部署成功后，先测试：
+
+  ```text
+  https://你的 Render 后端域名/health
+  ```
+
+- 前端部署时，`VITE_API_BASE_URL` 填 Render 后端地址，例如：
+
+  ```text
+  https://your-backend-service.onrender.com
+  ```
+
+- 拿到 Vercel 前端域名后，回到 Render，把 `CORS_ORIGIN` 设置为 Vercel 前端域名。
+
+## 五、后端部署到 Render
 
 1. 打开 Render。
 
@@ -103,7 +140,7 @@
     }
     ```
 
-## 五、前端部署到 Vercel
+## 六、前端部署到 Vercel
 
 1. 打开 Vercel。
 
@@ -153,7 +190,7 @@
 
 11. 用手机浏览器打开这个前端公网地址。
 
-## 六、部署后回填 CORS
+## 七、部署后回填 CORS
 
 1. 拿到 Vercel 前端域名后，复制完整地址，例如：
 
@@ -177,7 +214,7 @@
 
 7. 再次打开 Vercel 前端网址测试。
 
-## 七、上线后验收清单
+## 八、上线后验收清单
 
 - [ ] 前端公网网址能打开。
 - [ ] 后端 `/health` 能打开。
@@ -194,7 +231,7 @@
 - [ ] 删除确认弹窗能用。
 - [ ] 手机浏览器能正常访问。
 
-## 八、常见问题排查
+## 九、常见问题排查
 
 ### 1. 前端能打开，但衣柜加载失败
 
@@ -252,7 +289,7 @@
 - 任何访问者新增、删除、打卡或重置演示数据，都会影响所有人看到的内容。
 - 后续需要做匿名用户模式或登录系统，让每个人的数据隔离。
 
-## 九、后续升级建议
+## 十、后续升级建议
 
 ### V1.4：匿名用户模式
 
@@ -274,7 +311,7 @@
 
 - 如果后续确认主要用户在微信生态，再考虑小程序。
 
-## 十、最终提醒
+## 十一、最终提醒
 
 - 当前阶段目标是“公网演示版”。
 - 不要在里面存真实隐私数据。
