@@ -1,13 +1,14 @@
 # 公网 Web App 部署说明
 
-本文档用于把《算法驱动的衣橱经济学与色彩唤醒系统》部署成公网演示版。请按步骤操作，不需要写代码。
+本文档用于把《算法驱动的衣橱经济学与色彩唤醒系统》部署成公网演示版。当前主部署方案已经改为全部使用 Render：后端使用 Render Web Service，前端使用 Render Static Site。
 
 ## 一、当前部署目标
 
-- 前端部署到 Vercel。
-- 后端部署到 Render。
+- 后端部署到 Render Web Service。
+- 前端部署到 Render Static Site。
 - 数据库暂时使用 SQLite，作为公网演示版。
 - 当前版本是公网演示版，不是正式多人商业版。
+- Vercel 现在只作为备用前端部署方案，不作为主流程。
 
 ## 二、当前版本限制
 
@@ -15,8 +16,8 @@
 - 所有人共用同一份演示衣柜数据。
 - A 用户新增或删除衣服，B 用户也会看到变化。
 - 点击“重置演示数据”会影响所有访问者看到的演示数据。
-- SQLite 适合当前公网演示版，但不适合正式多人长期使用。
-- 免费云服务可能会休眠、冷启动、访问慢。
+- SQLite 适合当前公网演示版，但不适合正式多人长期保存和多人长期使用。
+- Render 免费服务可能会休眠，首次访问可能出现冷启动，页面或接口可能变慢。
 - 当前版本不适合存放真实隐私衣柜数据。
 
 ## 三、部署前准备
@@ -45,50 +46,33 @@
 
 ## 四、Codex 已准备的配置文件
 
-项目根目录已经准备了这些部署配置文件，用来减少你在网页控制台里手动填写的内容：
+- `render.yaml`：用于 Render 后端 Web Service 的 Blueprint / 配置参考。它指向 `server` 目录，使用 `npm install` 构建、`npm start` 启动，并设置了 `HOST=0.0.0.0` 和 `DATABASE_PATH=./data/wardrobe.sqlite`。
+- `vercel.json`：历史备用配置，仅用于以后如果重新选择 Vercel 部署前端时参考。当前主流程不使用 Vercel。
 
-- `render.yaml`：用于 Render Blueprint / Web Service 配置参考。它指向 `server` 目录，使用 `npm install` 构建、`npm start` 启动，并设置了 `HOST=0.0.0.0` 和 `DATABASE_PATH=./data/wardrobe.sqlite`。
-- `vercel.json`：用于 Vercel 前端配置参考。它描述了从 `client` 目录安装依赖、执行 Vite build，并输出到 `client/dist`。
+注意：
 
-仍然需要注意：
+- 当前前端主流程是在 Render 创建 Static Site。
+- 如果 `render.yaml` 没有自动创建前端 Static Site，请在 Render 网页里手动创建 Static Site，并按本文档填写。
+- Render 后端的 `Root Directory` 必须是 `server`。
+- Render 前端的 `Root Directory` 必须是 `client`。
 
-- Render 可能仍需要你在网页里连接 GitHub 仓库，并确认 Blueprint 或 Web Service 设置。
-- Vercel 仍需要你在网页里导入 GitHub 仓库，并设置环境变量 `VITE_API_BASE_URL`。
-- Vercel 的 `Root Directory` 必须是：
-
-  ```text
-  client
-  ```
-
-- Render 的 `Root Directory` 必须是：
-
-  ```text
-  server
-  ```
-
-- 后端部署成功后，先测试：
-
-  ```text
-  https://你的 Render 后端域名/health
-  ```
-
-- 前端部署时，`VITE_API_BASE_URL` 填 Render 后端地址，例如：
-
-  ```text
-  https://your-backend-service.onrender.com
-  ```
-
-- 拿到 Vercel 前端域名后，回到 Render，把 `CORS_ORIGIN` 设置为 Vercel 前端域名。
-
-## 五、后端部署到 Render
+## 五、后端部署到 Render Web Service
 
 1. 打开 Render。
 
 2. 点击 `New`，选择 `Web Service`。
 
-3. 连接你的 GitHub 仓库。
+3. 连接 GitHub 仓库：
 
-4. 选择当前项目仓库。
+   ```text
+   https://github.com/zqw878210a-ctrl/zqw
+   ```
+
+4. 服务名称建议填写：
+
+   ```text
+   wardrobe-mvp-server
+   ```
 
 5. `Root Directory` 填：
 
@@ -108,28 +92,26 @@
    npm start
    ```
 
-8. 设置环境变量：
+8. 设置后端环境变量：
 
    ```text
    HOST=0.0.0.0
    DATABASE_PATH=./data/wardrobe.sqlite
-   CORS_ORIGIN=
+   CORS_ORIGIN=https://wardrobe-mvp-client.onrender.com
    ```
 
-   `CORS_ORIGIN` 先留空，等前端 Vercel 部署完成后再回来填写。
+9. 不要手动设置 `PORT`，Render 会自动提供。
 
-9. `PORT` 通常由 Render 自动提供，不一定要手动填写。
-
-10. 点击部署。部署完成后，Render 会给你一个后端公网地址，例如：
+10. 部署完成后，后端公网地址应类似：
 
     ```text
-    https://your-backend-service.onrender.com
+    https://wardrobe-mvp-server.onrender.com
     ```
 
-11. 打开后端健康检查地址：
+11. 打开健康检查地址：
 
     ```text
-    https://你的后端域名/health
+    https://wardrobe-mvp-server.onrender.com/health
     ```
 
 12. 如果能看到类似下面的内容，说明后端正常：
@@ -140,15 +122,23 @@
     }
     ```
 
-## 六、前端部署到 Vercel
+## 六、前端部署到 Render Static Site
 
-1. 打开 Vercel。
+1. 打开 Render。
 
-2. 点击 `Add New`，选择 `Project`。
+2. 点击 `New`，选择 `Static Site`。
 
-3. 选择 `Import GitHub Project`。
+3. 连接同一个 GitHub 仓库：
 
-4. 选择当前项目仓库。
+   ```text
+   https://github.com/zqw878210a-ctrl/zqw
+   ```
+
+4. 服务名称建议填写：
+
+   ```text
+   wardrobe-mvp-client
+   ```
 
 5. `Root Directory` 填：
 
@@ -156,96 +146,106 @@
    client
    ```
 
-6. `Framework Preset` 选择 `Vite`，也可以让 Vercel 自动识别。
-
-7. `Build Command` 填：
+6. `Build Command` 填：
 
    ```bash
-   npm run build
+   npm install && npm run build
    ```
 
-8. `Output Directory` 填：
+7. `Publish Directory` 填：
 
    ```text
    dist
    ```
 
-9. 设置环境变量：
+8. 设置前端环境变量：
 
    ```text
-   VITE_API_BASE_URL=https://你的 Render 后端域名
+   VITE_API_BASE_URL=https://wardrobe-mvp-server.onrender.com
    ```
 
-   示例：
+9. 部署完成后，前端公网地址应类似：
 
    ```text
-   VITE_API_BASE_URL=https://your-backend-service.onrender.com
+   https://wardrobe-mvp-client.onrender.com
    ```
 
-10. 点击部署。部署完成后，Vercel 会给你一个前端公网地址，例如：
+10. 用电脑或手机浏览器打开前端公网地址测试。
 
-    ```text
-    https://your-project.vercel.app
-    ```
+## 七、部署顺序建议
 
-11. 用手机浏览器打开这个前端公网地址。
-
-## 七、部署后回填 CORS
-
-1. 拿到 Vercel 前端域名后，复制完整地址，例如：
+1. 先部署后端 Render Web Service。
+2. 打开 `https://wardrobe-mvp-server.onrender.com/health`，确认后端正常。
+3. 再部署前端 Render Static Site。
+4. 前端环境变量填写：
 
    ```text
-   https://your-project.vercel.app
+   VITE_API_BASE_URL=https://wardrobe-mvp-server.onrender.com
    ```
 
-2. 回到 Render 后端服务设置。
-
-3. 找到环境变量 `CORS_ORIGIN`。
-
-4. 填入 Vercel 前端域名，例如：
+5. 回到后端环境变量，确认：
 
    ```text
-   CORS_ORIGIN=https://your-project.vercel.app
+   CORS_ORIGIN=https://wardrobe-mvp-client.onrender.com
    ```
 
-5. 保存环境变量。
-
-6. 重新部署 Render 后端。
-
-7. 再次打开 Vercel 前端网址测试。
+6. 如果修改过环境变量，重新部署对应服务。
 
 ## 八、上线后验收清单
 
-- [ ] 前端公网网址能打开。
-- [ ] 后端 `/health` 能打开。
-- [ ] 首页能加载 5 件衣服。
-- [ ] 图片能显示。
+- [ ] 后端 `/health` 能打开：`https://wardrobe-mvp-server.onrender.com/health`。
+- [ ] 前端公网网址能打开：`https://wardrobe-mvp-client.onrender.com`。
+- [ ] 首页能加载 5 件演示衣服。
+- [ ] 5 件衣服图片能显示。
 - [ ] 重置演示数据能用。
 - [ ] 今天穿了它能用。
 - [ ] 防重复打卡提示正常。
 - [ ] 一键诊断衣橱能用。
 - [ ] 诊断弹窗能打开。
 - [ ] 生成转卖文案能用。
-- [ ] 复制文案能用。
+- [ ] 复制完整发布文案能用。
 - [ ] 新增单品能用。
 - [ ] 删除确认弹窗能用。
-- [ ] 手机浏览器能正常访问。
+- [ ] 手机浏览器能正常访问前端公网地址。
+- [ ] Render 冷启动后刷新页面，功能仍能恢复正常。
 
 ## 九、常见问题排查
 
 ### 1. 前端能打开，但衣柜加载失败
 
-- 检查 Vercel 的 `VITE_API_BASE_URL` 是否填了 Render 后端域名。
-- 检查后端 `/health` 是否正常。
-- 检查 Render 的 `CORS_ORIGIN` 是否正确。
-- 如果刚部署完 Render，等待一会儿再刷新，免费服务可能会冷启动。
+- 检查 Render 前端 Static Site 的环境变量是否是：
+
+  ```text
+  VITE_API_BASE_URL=https://wardrobe-mvp-server.onrender.com
+  ```
+
+- 检查后端健康检查是否正常：
+
+  ```text
+  https://wardrobe-mvp-server.onrender.com/health
+  ```
+
+- 检查 Render 后端 Web Service 的环境变量是否是：
+
+  ```text
+  CORS_ORIGIN=https://wardrobe-mvp-client.onrender.com
+  ```
+
+- 如果刚部署完或长时间没人访问，等待一会儿再刷新，Render 免费服务可能正在冷启动。
 
 ### 2. 后端部署失败
 
-- 检查 Render 的 `Root Directory` 是否是：
+- 检查后端服务类型是否是 `Web Service`。
+- 检查 `Root Directory` 是否是：
 
   ```text
   server
+  ```
+
+- 检查 `Build Command` 是否是：
+
+  ```bash
+  npm install
   ```
 
 - 检查 `Start Command` 是否是：
@@ -258,7 +258,8 @@
 
 ### 3. 前端部署失败
 
-- 检查 Vercel 的 `Root Directory` 是否是：
+- 检查前端服务类型是否是 `Static Site`。
+- 检查 `Root Directory` 是否是：
 
   ```text
   client
@@ -267,10 +268,10 @@
 - 检查 `Build Command` 是否是：
 
   ```bash
-  npm run build
+  npm install && npm run build
   ```
 
-- 检查 `Output Directory` 是否是：
+- 检查 `Publish Directory` 是否是：
 
   ```text
   dist
@@ -280,7 +281,7 @@
 
 - 检查 `client/public/assets/items` 是否存在图片。
 - 检查接口里的 `imageUrl` 是否是 `/assets/items/xxx.png`。
-- 检查 Vercel 是否成功部署了 `public` 目录。
+- 检查 Render Static Site 是否成功部署了 `client/public` 目录里的静态资源。
 - 如果图片文件名写成了 `.png.png`，需要改成 `.png`。
 
 ### 5. 数据被别人改了
@@ -289,7 +290,28 @@
 - 任何访问者新增、删除、打卡或重置演示数据，都会影响所有人看到的内容。
 - 后续需要做匿名用户模式或登录系统，让每个人的数据隔离。
 
-## 十、后续升级建议
+### 6. 数据突然恢复或丢失
+
+- 当前数据库是 SQLite 文件，适合公网演示，不适合长期保存。
+- 免费云服务的磁盘和实例行为不适合作为正式长期数据库使用。
+- 后续如果要正式多人使用，应迁移到 PostgreSQL。
+
+## 十、Vercel 备用方案
+
+当前主方案不使用 Vercel。如果以后重新选择 Vercel 部署前端，可以参考根目录的 `vercel.json`，并在 Vercel 中填写：
+
+- Root Directory：`client`
+- Build Command：`npm run build`
+- Output Directory：`dist`
+- Environment Variable：
+
+  ```text
+  VITE_API_BASE_URL=https://wardrobe-mvp-server.onrender.com
+  ```
+
+如果使用 Vercel 作为前端域名，需要把后端 `CORS_ORIGIN` 改成实际的 Vercel 前端域名。
+
+## 十一、后续升级建议
 
 ### V1.4：匿名用户模式
 
@@ -311,8 +333,11 @@
 
 - 如果后续确认主要用户在微信生态，再考虑小程序。
 
-## 十一、最终提醒
+## 十二、最终提醒
 
 - 当前阶段目标是“公网演示版”。
 - 不要在里面存真实隐私数据。
-- 如果要让每个人长期使用自己的衣柜，下一阶段必须做用户数据隔离。
+- Render 免费服务可能冷启动，首次打开慢是正常现象。
+- 所有人共用同一份演示衣柜数据。
+- SQLite 数据不适合长期保存。
+- 如果要让每个人长期使用自己的衣柜，下一阶段必须做用户数据隔离，并迁移到更适合生产环境的数据库。
