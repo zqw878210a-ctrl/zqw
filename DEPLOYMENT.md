@@ -98,6 +98,8 @@
    HOST=0.0.0.0
    DATABASE_PATH=./data/wardrobe.sqlite
    CORS_ORIGIN=https://wardrobe-mvp-client.onrender.com
+   JWT_SECRET=请替换为一段足够长的随机字符串
+   JWT_EXPIRES_IN=7d
    ```
 
 9. 不要手动设置 `PORT`，Render 会自动提供。

@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import { initDatabase } from "./db/database.js";
+import authRouter from "./routes/auth.js";
 import colorsRouter from "./routes/colors.js";
 import wardrobeRouter from "./routes/wardrobe.js";
 import diagnosisRouter from "./routes/diagnosis.js";
@@ -18,8 +19,13 @@ const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = process.env.HOST || "0.0.0.0";
 const CORS_ORIGIN = process.env.CORS_ORIGIN?.trim();
+const JWT_SECRET = process.env.JWT_SECRET?.trim();
 
 initDatabase();
+
+if (!JWT_SECRET) {
+  console.warn("[Auth] JWT_SECRET is not set. Using local fallback; set JWT_SECRET on Render before production demos.");
+}
 
 app.use(cors(CORS_ORIGIN ? { origin: CORS_ORIGIN } : undefined));
 app.use(express.json({ limit: "2mb" }));
@@ -37,6 +43,7 @@ app.get("/health", (req, res) => {
   });
 });
 
+app.use("/api/auth", authRouter);
 app.use("/api/colors", colorsRouter);
 app.use("/api/wardrobe", wardrobeRouter);
 app.use("/api/diagnosis", diagnosisRouter);

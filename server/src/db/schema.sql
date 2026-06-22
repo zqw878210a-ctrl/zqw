@@ -9,6 +9,20 @@ CREATE TABLE IF NOT EXISTS color_palette (
   CHECK (length(hex) = 7 AND substr(hex, 1, 1) = '#')
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_login_at TEXT DEFAULT NULL,
+
+  CHECK (length(username) BETWEEN 3 AND 24),
+  CHECK (length(password_hash) > 0)
+);
+
 CREATE TABLE IF NOT EXISTS wardrobe_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
 
@@ -99,6 +113,16 @@ FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
   UPDATE preset_products
+  SET updated_at = datetime('now')
+  WHERE id = OLD.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_users_updated_at
+AFTER UPDATE ON users
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+  UPDATE users
   SET updated_at = datetime('now')
   WHERE id = OLD.id;
 END;
