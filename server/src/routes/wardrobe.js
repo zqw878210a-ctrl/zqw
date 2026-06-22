@@ -5,6 +5,10 @@ import { centsToYuanText } from "../utils/money.js";
 
 const router = express.Router();
 
+const MAX_IMAGE_URL_LENGTH = 1120000;
+const ASSET_IMAGE_URL_PATTERN = /^\/assets\/[A-Za-z0-9/_-]+\.(png|jpg|jpeg|webp)$/i;
+const DATA_IMAGE_URL_PATTERN = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+
 const demoWardrobeItems = [
   {
     name: "blue shirt",
@@ -52,6 +56,46 @@ const demoWardrobeItems = [
     lastWornOffset: "-95 days"
   }
 ];
+
+function validateImageUrl(imageUrl) {
+  if (typeof imageUrl !== "string" || imageUrl.trim() === "") {
+    return {
+      valid: false,
+      code: "IMAGE_REQUIRED",
+      message: "请先选择或保留默认单品图片"
+    };
+  }
+
+  const trimmedImageUrl = imageUrl.trim();
+
+  if (trimmedImageUrl.length > MAX_IMAGE_URL_LENGTH) {
+    return {
+      valid: false,
+      code: "IMAGE_TOO_LARGE",
+      message: "图片数据过大，请换一张更小的图片"
+    };
+  }
+
+  if (ASSET_IMAGE_URL_PATTERN.test(trimmedImageUrl)) {
+    return {
+      valid: true,
+      imageUrl: trimmedImageUrl
+    };
+  }
+
+  if (DATA_IMAGE_URL_PATTERN.test(trimmedImageUrl)) {
+    return {
+      valid: true,
+      imageUrl: trimmedImageUrl
+    };
+  }
+
+  return {
+    valid: false,
+    code: "IMAGE_INVALID",
+    message: "图片地址格式不正确，仅支持演示图片路径或 JPG、PNG、WebP 图片"
+  };
+}
 
 function mapWardrobeItem(row) {
   return {
@@ -184,8 +228,10 @@ router.post("/", (req, res) => {
       priceCents
     } = req.body ?? {};
 
-    if (typeof imageUrl !== "string" || imageUrl.trim() === "") {
-      return fail(res, 400, "VALIDATION_ERROR", "请先上传单品图片");
+    const imageValidation = validateImageUrl(imageUrl);
+
+    if (!imageValidation.valid) {
+      return fail(res, 400, imageValidation.code, imageValidation.message);
     }
 
     if (typeof colorKey !== "string" || colorKey.trim() === "") {
@@ -224,7 +270,7 @@ router.post("/", (req, res) => {
           (?, ?, ?, ?, 0, NULL)
         `
       )
-      .run(safeName, imageUrl.trim(), colorKey.trim(), priceCents);
+      .run(safeName, imageValidation.imageUrl, colorKey.trim(), priceCents);
 
     return ok(res, {
       id: result.lastInsertRowid,

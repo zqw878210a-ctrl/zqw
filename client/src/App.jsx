@@ -186,6 +186,94 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+const DEFAULT_ITEM_IMAGE_URL = '/assets/items/green-knit.png'
+const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024
+const MAX_IMAGE_DATA_URL_BYTES = 800 * 1024
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+
+function getDataUrlByteSize(dataUrl) {
+  return Math.ceil((dataUrl.length * 3) / 4)
+}
+
+function validateImageFile(file) {
+  if (!file) {
+    return '请先选择图片'
+  }
+
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    return '仅支持 JPG、PNG 或 WebP 图片'
+  }
+
+  if (file.size > MAX_IMAGE_FILE_BYTES) {
+    return '图片不能超过 5MB，请换一张更小的图片'
+  }
+
+  return ''
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(new Error('IMAGE_READ_FAILED'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('IMAGE_LOAD_FAILED'))
+    image.src = dataUrl
+  })
+}
+
+async function resizeImageToDataUrl(file, options = {}) {
+  const maxSide = options.maxSide || 800
+  const qualities = options.qualities || [0.7, 0.6, 0.5]
+  const sourceDataUrl = await readFileAsDataUrl(file)
+  const image = await loadImage(sourceDataUrl)
+
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height))
+  const width = Math.max(1, Math.round(image.width * scale))
+  const height = Math.max(1, Math.round(image.height * scale))
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    throw new Error('CANVAS_NOT_SUPPORTED')
+  }
+
+  canvas.width = width
+  canvas.height = height
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, width, height)
+  context.drawImage(image, 0, 0, width, height)
+
+  let bestDataUrl = ''
+
+  for (const quality of qualities) {
+    const dataUrl = canvas.toDataURL('image/jpeg', quality)
+
+    if (!bestDataUrl || dataUrl.length < bestDataUrl.length) {
+      bestDataUrl = dataUrl
+    }
+
+    if (getDataUrlByteSize(dataUrl) <= MAX_IMAGE_DATA_URL_BYTES) {
+      return dataUrl
+    }
+  }
+
+  if (getDataUrlByteSize(bestDataUrl) > MAX_IMAGE_DATA_URL_BYTES) {
+    throw new Error('IMAGE_TOO_LARGE_AFTER_RESIZE')
+  }
+
+  return bestDataUrl
+}
+
 function buildResaleCopyText(copy) {
   const title = getResaleTitle(copy)
   const description = getResaleDescription(copy)
@@ -276,6 +364,9 @@ function App() {
   const [newName, setNewName] = useState('green sweater')
   const [newPrice, setNewPrice] = useState('')
   const [selectedColorKey, setSelectedColorKey] = useState('')
+  const [selectedImageDataUrl, setSelectedImageDataUrl] = useState('')
+  const [selectedImageName, setSelectedImageName] = useState('')
+  const [imageProcessing, setImageProcessing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [resettingDemo, setResettingDemo] = useState(false)
 
@@ -291,9 +382,10 @@ const [diagnosisLoading, setDiagnosisLoading] = useState(false)
 const [resaleCopy, setResaleCopy] = useState(null)
 const [isResaleOpen, setIsResaleOpen] = useState(false)
 const [resaleLoading, setResaleLoading] = useState(false)
-const [copyLoading, setCopyLoading] = useState(false)
+  const [copyLoading, setCopyLoading] = useState(false)
 
   const toastTimerRef = useRef(null)
+  const imageInputRef = useRef(null)
 
     function showToast(message, type = 'success') {
     setToastMessage(message)
@@ -371,9 +463,72 @@ const [copyLoading, setCopyLoading] = useState(false)
     loadColors()
   }
 
+  function resetAddForm() {
+    setNewName('green sweater')
+    setNewPrice('')
+    setSelectedColorKey('')
+    setSelectedImageDataUrl('')
+    setSelectedImageName('')
+    setImageProcessing(false)
+
+    if (imageInputRef.current) {
+      imageInputRef.current.value = ''
+    }
+  }
+
   function closeAddPanel() {
     if (saving) return
     setIsAddOpen(false)
+    resetAddForm()
+  }
+
+  function openImagePicker() {
+    if (saving || imageProcessing) return
+    imageInputRef.current?.click()
+  }
+
+  function clearSelectedImage() {
+    setSelectedImageDataUrl('')
+    setSelectedImageName('')
+
+    if (imageInputRef.current) {
+      imageInputRef.current.value = ''
+    }
+  }
+
+  async function handleImageFileChange(event) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    const validationMessage = validateImageFile(file)
+
+    if (validationMessage) {
+      clearSelectedImage()
+      showToast(validationMessage, 'error')
+      return
+    }
+
+    try {
+      setImageProcessing(true)
+
+      const dataUrl = await resizeImageToDataUrl(file, {
+        maxSide: 800,
+        qualities: [0.7, 0.6, 0.5],
+      })
+
+      setSelectedImageDataUrl(dataUrl)
+      setSelectedImageName(file.name)
+      showToast('图片已添加')
+    } catch (error) {
+      console.error(error)
+      clearSelectedImage()
+      showToast('图片处理失败，请换一张更小的 JPG、PNG 或 WebP 图片', 'error')
+    } finally {
+      setImageProcessing(false)
+    }
   }
 
 async function handleResetDemoData() {
@@ -401,7 +556,7 @@ async function handleResetDemoData() {
 }
 
 async function handleCreateItem() {
-  if (saving) {
+  if (saving || imageProcessing) {
     return
   }
 
@@ -432,15 +587,14 @@ async function handleCreateItem() {
 
       await createWardrobeItem({
         name: newName.trim(),
-        imageUrl: '/assets/items/green-knit.png',
+        imageUrl: selectedImageDataUrl || DEFAULT_ITEM_IMAGE_URL,
         colorKey: selectedColorKey,
         priceCents: Math.round(priceNumber * 100),
       })
 
       showToast('新增衣服成功')
       setIsAddOpen(false)
-      setNewName('green sweater')
-      setNewPrice('')
+      resetAddForm()
 
       await loadWardrobe({
         showLoading: false,
@@ -683,7 +837,11 @@ function closeResaleDrawer() {
 }, [isAddOpen, isDiagnosisOpen, isResaleOpen, deleteTarget])
 
     const canSave =
-    newName.trim() && selectedColorKey && newPrice && Number(newPrice) > 0
+    newName.trim() &&
+    selectedColorKey &&
+    newPrice &&
+    Number(newPrice) > 0 &&
+    !imageProcessing
 
   const diagnosisDisplay = diagnosisResult
     ? getDiagnosisDisplay(diagnosisResult)
@@ -946,12 +1104,65 @@ function closeResaleDrawer() {
 
             <div className="flex-1 overflow-y-auto px-5 py-5">
               <div className="rounded-3xl bg-slate-950 p-4 text-white shadow-sm">
-                <div className="flex h-44 items-center justify-center rounded-2xl bg-white/10 text-5xl">
-                  👕
+                <div className="relative flex h-44 items-center justify-center overflow-hidden rounded-2xl bg-white/10 text-5xl">
+                  {selectedImageDataUrl ? (
+                    <img
+                      src={selectedImageDataUrl}
+                      alt="新单品预览"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>👕</span>
+                  )}
+
+                  {imageProcessing && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 text-sm font-semibold">
+                      图片处理中……
+                    </div>
+                  )}
                 </div>
-                <p className="mt-4 text-sm font-semibold">演示阶段使用默认图片</p>
+
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleImageFileChange}
+                  className="hidden"
+                />
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">
+                      {selectedImageDataUrl ? '已选择本地图片' : '演示阶段可使用默认图片'}
+                    </p>
+                    <p className="mt-1 truncate text-xs leading-5 text-slate-300">
+                      {selectedImageName || '支持 JPG / PNG / WebP，原图不超过 5MB'}
+                    </p>
+                  </div>
+
+                  {selectedImageDataUrl && (
+                    <button
+                      type="button"
+                      onClick={clearSelectedImage}
+                      disabled={saving || imageProcessing}
+                      className="shrink-0 rounded-full bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      清除
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={openImagePicker}
+                  disabled={saving || imageProcessing}
+                  className="mt-3 w-full rounded-full bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500"
+                >
+                  {imageProcessing ? '图片处理中……' : selectedImageDataUrl ? '重新选择图片' : '选择本地图片'}
+                </button>
+
                 <p className="mt-1 text-xs leading-5 text-slate-300">
-                  暂不做真实图片上传，保存后系统会使用固定演示图片跑通流程。
+                  保存时会把图片压缩为演示级预览图，不会上传原始文件。
                 </p>
               </div>
 
