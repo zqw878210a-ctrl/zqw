@@ -377,6 +377,30 @@ router.post("/demo-reset", (req, res) => {
   }
 });
 
+router.post("/demo-clear", (req, res) => {
+  try {
+    const db = getDb();
+
+    const result = db
+      .prepare(
+        `
+        UPDATE wardrobe_items
+        SET deleted_at = datetime('now')
+        WHERE deleted_at IS NULL
+        `
+      )
+      .run();
+
+    return ok(res, {
+      deletedCount: result.changes,
+      message: "衣橱已清空"
+    });
+  } catch (error) {
+    console.error("[POST /api/wardrobe/demo-clear]", error);
+    return fail(res, 500, "DB_ERROR", "清空衣橱失败，请稍后再试");
+  }
+});
+
 router.post("/:id/wear", (req, res) => {
   try {
     const db = getDb();

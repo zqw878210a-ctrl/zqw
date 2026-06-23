@@ -4,6 +4,7 @@ import { getColors } from './api/colorsApi'
 import { runDiagnosis } from './api/diagnosisApi'
 import { generateResaleCopy } from './api/resaleApi'
 import {
+  clearDemoWardrobe,
   createWardrobeItem,
   deleteWardrobeItem,
   getWardrobe,
@@ -577,6 +578,7 @@ function App() {
   const [imageProcessing, setImageProcessing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [resettingDemo, setResettingDemo] = useState(false)
+  const [clearingDemo, setClearingDemo] = useState(false)
 
   const [checkingItemIds, setCheckingItemIds] = useState([])
 const [deletingItemIds, setDeletingItemIds] = useState([])
@@ -851,6 +853,43 @@ async function handleResetDemoData() {
     showToast('重置演示数据失败', 'error')
   } finally {
     setResettingDemo(false)
+  }
+}
+
+async function handleClearDemoData() {
+  if (clearingDemo) {
+    return
+  }
+
+  const confirmed = window.confirm(
+    '这是演示功能，会清空当前衣橱数据，便于展示空衣橱诊断状态。确定要继续吗？'
+  )
+
+  if (!confirmed) {
+    return
+  }
+
+  try {
+    setClearingDemo(true)
+
+    await clearDemoWardrobe()
+    setImageErrorItemIds([])
+    setIsDiagnosisOpen(false)
+    setDiagnosisResult(null)
+    setIsResaleOpen(false)
+    setResaleCopy(null)
+    setDeleteTarget(null)
+    showToast('衣橱已清空，可以点击一键诊断查看空状态')
+
+    await loadWardrobe({
+      showLoading: false,
+      keepScroll: true,
+    })
+  } catch (error) {
+    console.error(error)
+    showToast('清空衣橱失败', 'error')
+  } finally {
+    setClearingDemo(false)
   }
 }
 
@@ -1394,10 +1433,18 @@ function closeResaleDrawer() {
             <div className="flex shrink-0 gap-2">
               <button
                 onClick={handleResetDemoData}
-                disabled={resettingDemo}
+                disabled={resettingDemo || clearingDemo}
                 className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
               >
                 {resettingDemo ? '重置中……' : '重置演示数据'}
+              </button>
+
+              <button
+                onClick={handleClearDemoData}
+                disabled={clearingDemo || resettingDemo}
+                className="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-red-100 disabled:text-red-300"
+              >
+                {clearingDemo ? '清空中……' : '清空衣橱'}
               </button>
 
               <button

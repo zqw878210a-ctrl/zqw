@@ -23,6 +23,12 @@ export function resetDemoWardrobe() {
   })
 }
 
+export function clearDemoWardrobe() {
+  return request('/api/wardrobe/demo-clear', {
+    method: 'POST',
+  })
+}
+
 export function deleteWardrobeItem(id) {
   return request(`/api/wardrobe/${id}`, {
     method: 'DELETE',
