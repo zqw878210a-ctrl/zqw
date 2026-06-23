@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { getMe, login, register } from './api/authApi'
 import { getColors } from './api/colorsApi'
 import { runDiagnosis } from './api/diagnosisApi'
 import { generateResaleCopy } from './api/resaleApi'
@@ -187,6 +188,7 @@ function sleep(ms) {
 }
 
 const DEFAULT_ITEM_IMAGE_URL = '/assets/items/green-knit.png'
+const AUTH_TOKEN_STORAGE_KEY = 'wardrobe_auth_token'
 const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024
 const MAX_IMAGE_DATA_URL_BYTES = 800 * 1024
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
@@ -359,6 +361,14 @@ function App() {
   const [colors, setColors] = useState([])
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+  const [authToken, setAuthToken] = useState('')
+  const [currentUser, setCurrentUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authMode, setAuthMode] = useState('login')
+  const [authUsername, setAuthUsername] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [authSubmitting, setAuthSubmitting] = useState(false)
 
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [newName, setNewName] = useState('green sweater')
@@ -456,6 +466,97 @@ const [resaleLoading, setResaleLoading] = useState(false)
       console.error(error)
       showToast('颜色列表读取失败', 'error')
     }
+  }
+
+  async function completeAuth(result) {
+    const data = result?.data || result || {}
+    const token = data?.token || ''
+    const user = data?.user || null
+
+    if (!token || !user) {
+      throw new Error('AUTH_RESPONSE_INVALID')
+    }
+
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+    setAuthToken(token)
+    setCurrentUser(user)
+    setAuthError('')
+    setAuthPassword('')
+
+    await loadWardrobe()
+  }
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault()
+
+    if (authSubmitting) {
+      return
+    }
+
+    const username = authUsername.trim()
+
+    if (!username) {
+      setAuthError('请输入账号')
+      return
+    }
+
+    if (!authPassword) {
+      setAuthError('请输入密码')
+      return
+    }
+
+    try {
+      setAuthSubmitting(true)
+      setAuthError('')
+
+      const result =
+        authMode === 'register'
+          ? await register(username, authPassword)
+          : await login(username, authPassword)
+
+      await completeAuth(result)
+    } catch (error) {
+      console.error(error)
+
+      const code = getErrorCode(error)
+      const message =
+        error?.data?.message ||
+        error?.data?.error?.message ||
+        error?.message ||
+        ''
+
+      if (code === 'USERNAME_EXISTS') {
+        setAuthError('账号已存在，请换一个账号或直接登录')
+      } else if (code === 'INVALID_CREDENTIALS') {
+        setAuthError('账号或密码不正确')
+      } else if (message && message !== 'AUTH_RESPONSE_INVALID') {
+        setAuthError(message)
+      } else {
+        setAuthError(authMode === 'register' ? '注册失败，请稍后再试' : '登录失败，请稍后再试')
+      }
+    } finally {
+      setAuthSubmitting(false)
+    }
+  }
+
+  function switchAuthMode(nextMode) {
+    if (authSubmitting) return
+
+    setAuthMode(nextMode)
+    setAuthError('')
+  }
+
+  function handleLogout() {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    setAuthToken('')
+    setCurrentUser(null)
+    setWardrobe([])
+    setErrorMessage('')
+    setAuthPassword('')
+    setIsAddOpen(false)
+    setIsDiagnosisOpen(false)
+    setIsResaleOpen(false)
+    setDeleteTarget(null)
   }
 
   function openAddPanel() {
@@ -812,7 +913,43 @@ function closeResaleDrawer() {
 }
 
   useEffect(() => {
-    loadWardrobe()
+    async function restoreSession() {
+      const storedToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+
+      if (!storedToken) {
+        setAuthLoading(false)
+        setLoading(false)
+        return
+      }
+
+      try {
+        setAuthLoading(true)
+
+        const result = await getMe(storedToken)
+        const user = result?.data?.user || result?.user || null
+
+        if (!user) {
+          throw new Error('AUTH_RESPONSE_INVALID')
+        }
+
+        setAuthToken(storedToken)
+        setCurrentUser(user)
+        setAuthError('')
+
+        await loadWardrobe()
+      } catch (error) {
+        console.error(error)
+        localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+        setAuthToken('')
+        setCurrentUser(null)
+        setWardrobe([])
+        setLoading(false)
+      } finally {
+        setAuthLoading(false)
+      }
+    }
+
+    restoreSession()
 
     return () => {
       if (toastTimerRef.current) {
@@ -847,6 +984,126 @@ function closeResaleDrawer() {
     ? getDiagnosisDisplay(diagnosisResult)
     : null
 
+  const canSubmitAuth =
+    authUsername.trim() && authPassword && !authSubmitting && !authLoading
+
+  if (authLoading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+        <section className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-sm ring-1 ring-slate-200">
+          <p className="text-xs font-semibold uppercase text-emerald-600">
+            Wardrobe Asset
+          </p>
+          <h1 className="mt-3 text-2xl font-bold text-slate-950">
+            正在确认登录状态
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            请稍候，系统正在连接衣橱资产看板。
+          </p>
+        </section>
+      </main>
+    )
+  }
+
+  if (!currentUser || !authToken) {
+    return (
+      <main className="min-h-screen bg-slate-100 px-4 py-6">
+        <section className="mx-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-200">
+          <p className="text-xs font-semibold uppercase text-emerald-600">
+            Wardrobe Asset
+          </p>
+
+          <h1 className="mt-3 text-3xl font-bold text-slate-950">
+            衣橱资产
+          </h1>
+
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            用 CPW 看见每件衣服的真实成本
+          </p>
+
+          <div className="mt-5 rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-800 ring-1 ring-amber-100">
+            当前版本为演示版。登录账号只用于进入系统，所有用户仍然共用同一套演示衣柜数据。
+          </div>
+
+          <div className="mt-6 grid grid-cols-2 gap-2 rounded-full bg-slate-100 p-1">
+            <button
+              type="button"
+              onClick={() => switchAuthMode('login')}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                authMode === 'login'
+                  ? 'bg-slate-950 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              登录
+            </button>
+
+            <button
+              type="button"
+              onClick={() => switchAuthMode('register')}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                authMode === 'register'
+                  ? 'bg-slate-950 text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              注册
+            </button>
+          </div>
+
+          <form onSubmit={handleAuthSubmit} className="mt-6 space-y-4">
+            <div>
+              <label className="text-sm font-semibold text-slate-800">
+                账号
+              </label>
+              <input
+                value={authUsername}
+                onChange={(event) => setAuthUsername(event.target.value)}
+                autoComplete="username"
+                className="mt-2 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 text-base text-slate-900 outline-none transition focus:border-slate-900 focus:bg-white"
+                placeholder="例如：testuser001"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold text-slate-800">
+                密码
+              </label>
+              <input
+                value={authPassword}
+                onChange={(event) => setAuthPassword(event.target.value)}
+                type="password"
+                autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                className="mt-2 w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-4 text-base text-slate-900 outline-none transition focus:border-slate-900 focus:bg-white"
+                placeholder="6-32 位密码"
+              />
+            </div>
+
+            {authError && (
+              <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 ring-1 ring-red-100">
+                {authError}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={!canSubmitAuth}
+              className="w-full rounded-full bg-slate-950 px-5 py-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+            >
+              {authSubmitting
+                ? authMode === 'register'
+                  ? '注册中……'
+                  : '登录中……'
+                : authMode === 'register'
+                  ? '注册并进入系统'
+                  : '登录进入系统'}
+            </button>
+          </form>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-5 pb-28">
       <div className="mx-auto w-full max-w-md">
@@ -880,6 +1137,19 @@ function closeResaleDrawer() {
             <span className="font-semibold text-emerald-700">
               {apiBaseUrl ? '后端已配置' : '默认本地后端'}
             </span>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-amber-50 px-4 py-3 text-xs text-amber-800 ring-1 ring-amber-100">
+            <span className="min-w-0 truncate">
+              演示账号：{currentUser?.username || '已登录'}，数据仍为公共演示衣柜
+            </span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm ring-1 ring-amber-100 transition hover:bg-amber-100"
+            >
+              退出
+            </button>
           </div>
         </section>
 
