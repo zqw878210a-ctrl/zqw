@@ -67,6 +67,7 @@ function getErrorCode(error) {
 function normalizeDiagnosisResult(result) {
   const data = result?.data || result?.result || result || {}
   const summary = data?.summary || {}
+  const items = Array.isArray(data?.items) ? data.items : []
 
   const rawTags =
     data?.tags ||
@@ -81,6 +82,10 @@ function normalizeDiagnosisResult(result) {
       : []
 
   return {
+    summary,
+    items,
+    isEmpty: Boolean(data?.isEmpty || summary?.totalItems === 0),
+
     level:
       data?.level ||
       summary?.level ||
@@ -288,67 +293,260 @@ ${description}
 建议转卖价：${suggestedPriceText}`
 }
 
-function getDiagnosisDisplay(diagnosis) {
-  const combinedText = [
-    diagnosis?.level,
-    diagnosis?.suggestion,
-    diagnosis?.nextAction,
-    ...(diagnosis?.tags || []),
-  ]
-    .join(' ')
-    .toLowerCase()
+function toNumber(value, fallback = 0) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : fallback
+}
 
-  if (
-    combinedText.includes('风险') ||
-    combinedText.includes('闲置') ||
-    combinedText.includes('转卖') ||
-    combinedText.includes('低频') ||
-    combinedText.includes('偏高') ||
-    combinedText.includes('90')
-  ) {
+function normalizeDiagnosisItem(item) {
+  const priceCents = toNumber(getItemValue(item, 'priceCents', 'price_cents', 0))
+  const wearCount = toNumber(getItemValue(item, 'wearCount', 'wear_count', 0))
+  const idleDays = toNumber(getItemValue(item, 'idleDays', 'idle_days', 0))
+  const cpwCents =
+    toNumber(getItemValue(item, 'cpwCents', 'cpw_cents', 0)) ||
+    (wearCount > 0 ? Math.round(priceCents / wearCount) : priceCents)
+
+  return {
+    ...item,
+    id: getItemValue(item, 'id', 'id', ''),
+    name: getItemValue(item, 'name', 'name', '未命名单品'),
+    imageUrl: getItemValue(item, 'imageUrl', 'image_url', ''),
+    colorKey: getItemValue(item, 'colorKey', 'color_key', ''),
+    colorName: getItemValue(item, 'colorName', 'color_name', ''),
+    priceCents,
+    priceText:
+      getItemValue(item, 'priceText', 'price_text', '') ||
+      formatPriceFromCents(priceCents),
+    wearCount,
+    idleDays,
+    cpwCents,
+    cpwText:
+      getItemValue(item, 'cpwText', 'cpw_text', '') ||
+      formatPriceFromCents(cpwCents),
+    level: item?.level || '',
+    tags: Array.isArray(item?.tags) ? item.tags : [],
+    suggestion: item?.suggestion || '',
+    nextAction: item?.nextAction || item?.next_action || '',
+  }
+}
+
+function mergeDiagnosisItems(wardrobe, diagnosis) {
+  const wardrobeItems = wardrobe.map(normalizeDiagnosisItem)
+  const diagnosisItems = (diagnosis?.items || []).map(normalizeDiagnosisItem)
+  const diagnosisById = new Map(diagnosisItems.map((item) => [String(item.id), item]))
+
+  if (wardrobeItems.length === 0) {
+    return diagnosisItems
+  }
+
+  return wardrobeItems.map((item) => ({
+    ...item,
+    ...(diagnosisById.get(String(item.id)) || {}),
+  }))
+}
+
+function getDiagnosisScore(item) {
+  let score = 0
+
+  if (item.level === 'danger') score += 120
+  if (item.level === 'warning') score += 70
+  if (item.nextAction === 'resale_or_rewear') score += 100
+  if (item.wearCount === 0) score += 90
+  if (item.wearCount > 0 && item.wearCount <= 2) score += 55
+  if (item.wearCount > 2 && item.wearCount <= 4) score += 25
+
+  score += Math.min(item.idleDays, 180)
+  score += Math.min(item.priceCents / 1000, 120)
+  score += Math.min(item.cpwCents / 1000, 140)
+
+  return score
+}
+
+function pickFocusDiagnosisItem(items) {
+  if (items.length === 0) return null
+
+  return [...items].sort((a, b) => getDiagnosisScore(b) - getDiagnosisScore(a))[0]
+}
+
+function pickOutfitPartner(focusItem, items) {
+  if (!focusItem) return null
+
+  const candidates = items.filter((item) => String(item.id) !== String(focusItem.id))
+
+  if (candidates.length === 0) return null
+
+  return (
+    candidates.find((item) => item.colorKey && item.colorKey !== focusItem.colorKey) ||
+    candidates[0]
+  )
+}
+
+function getFocusReasons(item) {
+  if (!item) return []
+
+  const reasons = []
+
+  if (item.wearCount === 0) {
+    reasons.push('从未穿着')
+  } else if (item.wearCount <= 2) {
+    reasons.push(`穿着次数仅 ${item.wearCount} 次`)
+  }
+
+  if (item.idleDays >= 90) {
+    reasons.push(`已闲置 ${item.idleDays} 天`)
+  } else if (item.idleDays >= 30) {
+    reasons.push(`已有 ${item.idleDays} 天未穿`)
+  }
+
+  if (item.cpwCents >= 10000) {
+    reasons.push(`当前 CPW 为 ${item.cpwText}`)
+  }
+
+  if (item.priceCents >= 50000) {
+    reasons.push(`购入价为 ${item.priceText}`)
+  }
+
+  return reasons
+}
+
+function getDiagnosisSeverity(item, items) {
+  if (!item || items.length === 0) return 'empty'
+
+  const hasHighRisk =
+    item.level === 'danger' ||
+    item.nextAction === 'resale_or_rewear' ||
+    item.wearCount === 0 ||
+    item.idleDays >= 90 ||
+    item.cpwCents >= 30000 ||
+    (item.priceCents >= 50000 && item.wearCount <= 2)
+
+  if (hasHighRisk) return 'high'
+
+  const needsAttention =
+    item.level === 'warning' ||
+    item.wearCount <= 3 ||
+    item.idleDays >= 30 ||
+    item.cpwCents >= 10000
+
+  if (needsAttention) return 'attention'
+
+  return 'healthy'
+}
+
+function getDiagnosisViewModel(wardrobe, diagnosis) {
+  const items = mergeDiagnosisItems(wardrobe, diagnosis)
+
+  if (items.length === 0 || diagnosis?.isEmpty) {
     return {
-      label: '风险',
-      title: '这件单品已经出现低频使用信号',
-      description:
-        '系统判断这件单品可能存在闲置或高成本问题，建议尽快搭配再穿，或考虑转卖回收预算。',
+      type: 'empty',
+      status: '暂无可诊断数据',
       badgeClass:
-        'rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700',
-      boxClass: 'mt-5 rounded-2xl bg-red-50 p-4 ring-1 ring-red-100',
-      titleClass: 'text-sm font-semibold text-red-800',
-      textClass: 'mt-2 text-sm leading-6 text-red-700',
+        'rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600',
+      statusBoxClass: 'mt-4 rounded-3xl bg-slate-50 p-4 ring-1 ring-slate-200',
+      statusTitleClass: 'text-sm font-semibold text-slate-700',
+      statusTextClass: 'mt-2 text-sm leading-6 text-slate-600',
+      targetItem: null,
+      outfitPartner: null,
+      outfitText: '',
+      judgmentTitle: '当前衣橱单品数为 0',
+      judgment:
+        '系统无法计算 CPW、闲置天数和穿着频率，因此不会给出空泛的单品判断。',
+      suggestion:
+        '请先录入至少 1 件衣服，或点击“重置演示数据”体验完整诊断流程。',
+      action:
+        '先建立衣橱数据，再启动闲置诊断与转卖文案流程。',
+      primaryAction: 'add',
+      primaryLabel: '录入第一件单品',
+      secondaryAction: 'reset',
+      secondaryLabel: '重置演示数据',
+      showResaleAction: false,
     }
   }
 
-  if (
-    combinedText.includes('提醒') ||
-    combinedText.includes('建议') ||
-    combinedText.includes('cpw') ||
-    combinedText.includes('成本') ||
-    combinedText.includes('多穿')
-  ) {
+  const focusItem = pickFocusDiagnosisItem(items)
+  const outfitPartner = pickOutfitPartner(focusItem, items)
+  const reasons = getFocusReasons(focusItem)
+  const severity = getDiagnosisSeverity(focusItem, items)
+  const outfitText = outfitPartner
+    ? `推荐穿搭：${focusItem.name} + ${outfitPartner.name}`
+    : ''
+
+  if (severity === 'healthy') {
     return {
-      label: '提醒',
-      title: '这件单品还可以继续提升使用效率',
-      description:
-        '系统判断这件单品仍有优化空间，建议近期多穿 1-2 次，让单次穿着成本继续下降。',
+      type: 'healthy',
+      status: '状态良好',
+      badgeClass:
+        'rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700',
+      statusBoxClass: 'mt-4 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100',
+      statusTitleClass: 'text-sm font-semibold text-emerald-800',
+      statusTextClass: 'mt-2 text-sm leading-6 text-emerald-700',
+      targetItem: focusItem,
+      outfitPartner,
+      outfitText: '',
+      judgmentTitle: '当前衣橱整体使用情况较健康',
+      judgment:
+        '系统未发现明显高风险单品。本次参考了价格、穿着次数、闲置天数和 CPW，整体没有出现需要立即挽救或转卖的信号。',
+      suggestion:
+        '继续保持当前穿着频率，并定期记录“今天穿了它”，让 CPW 和闲置判断更准确。',
+      action: '继续观察衣橱变化，暂时不需要强推转卖。',
+      primaryAction: 'close',
+      primaryLabel: '继续观察 / 返回衣橱看板',
+      secondaryAction: '',
+      secondaryLabel: '',
+      showResaleAction: false,
+    }
+  }
+
+  if (severity === 'attention') {
+    return {
+      type: 'attention',
+      status: '需要关注',
       badgeClass:
         'rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700',
-      boxClass: 'mt-5 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-100',
-      titleClass: 'text-sm font-semibold text-amber-800',
-      textClass: 'mt-2 text-sm leading-6 text-amber-700',
+      statusBoxClass: 'mt-4 rounded-3xl bg-amber-50 p-4 ring-1 ring-amber-100',
+      statusTitleClass: 'text-sm font-semibold text-amber-800',
+      statusTextClass: 'mt-2 text-sm leading-6 text-amber-700',
+      targetItem: focusItem,
+      outfitPartner,
+      outfitText,
+      judgmentTitle: `本次重点诊断单品：${focusItem.name}`,
+      judgment: `系统选择它，是因为${reasons.join('，') || '它的使用效率低于衣橱平均状态'}。当前还不一定需要立刻转卖，但已经值得近期优先激活。`,
+      suggestion:
+        '建议近期优先穿着一次，降低闲置天数，并观察 CPW 是否继续下降。',
+      action: outfitPartner
+        ? `可以先尝试 ${focusItem.name} + ${outfitPartner.name}。`
+        : `衣橱中目前只有 ${focusItem.name} 可作为重点单品，建议明天先穿这件。`,
+      primaryAction: 'close',
+      primaryLabel: outfitPartner ? '明天穿这套' : '明天穿这件',
+      secondaryAction: 'resale',
+      secondaryLabel: '生成转卖文案',
+      showResaleAction: true,
     }
   }
 
   return {
-    label: '健康',
-    title: '这件单品目前状态良好',
-    description:
-      '系统暂未发现明显闲置风险，可以继续保持当前穿着频率，并观察后续 CPW 变化。',
+    type: 'high',
+    status: '高风险闲置',
     badgeClass:
-      'rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700',
-    boxClass: 'mt-5 rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-100',
-    titleClass: 'text-sm font-semibold text-emerald-800',
-    textClass: 'mt-2 text-sm leading-6 text-emerald-700',
+      'rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700',
+    statusBoxClass: 'mt-4 rounded-3xl bg-red-50 p-4 ring-1 ring-red-100',
+    statusTitleClass: 'text-sm font-semibold text-red-800',
+    statusTextClass: 'mt-2 text-sm leading-6 text-red-700',
+    targetItem: focusItem,
+    outfitPartner,
+    outfitText,
+    judgmentTitle: `本次重点诊断单品：${focusItem.name}`,
+    judgment: `系统选择它，是因为${reasons.join('，') || '它同时具有低频和高成本信号'}。这说明它正在从“衣橱资产”变成“闲置成本”。`,
+    suggestion:
+      '建议先尝试搭配再穿；如果仍然不想穿，可以生成转卖文案，把闲置资产转化为预算回收。',
+    action: outfitPartner
+      ? `先尝试 ${focusItem.name} + ${outfitPartner.name}，如果仍然不想穿，再进入转卖流程。`
+      : `衣橱中目前只有 ${focusItem.name}，建议明天先穿这件；如果仍然不想穿，再进入转卖流程。`,
+    primaryAction: 'close',
+    primaryLabel: outfitPartner ? '采纳建议，明天穿这套' : '采纳建议，明天穿这件',
+    secondaryAction: 'resale',
+    secondaryLabel: '放弃挽救，生成转卖文案',
+    showResaleAction: true,
   }
 }
 
@@ -851,6 +1049,37 @@ async function handleRunDiagnosis() {
     setIsDiagnosisOpen(false)
   }
 
+function handleDiagnosisPrimaryAction() {
+  if (!diagnosisViewModel) {
+    closeDiagnosisModal()
+    return
+  }
+
+  if (diagnosisViewModel.primaryAction === 'add') {
+    closeDiagnosisModal()
+    openAddPanel()
+    return
+  }
+
+  closeDiagnosisModal()
+}
+
+async function handleDiagnosisSecondaryAction() {
+  if (!diagnosisViewModel) {
+    return
+  }
+
+  if (diagnosisViewModel.secondaryAction === 'reset') {
+    closeDiagnosisModal()
+    await handleResetDemoData()
+    return
+  }
+
+  if (diagnosisViewModel.secondaryAction === 'resale') {
+    await handleGenerateResaleCopy()
+  }
+}
+
 async function handleCopyResaleText() {
   if (copyLoading) {
     return
@@ -879,7 +1108,7 @@ async function handleGenerateResaleCopy() {
     return
   }
 
-  const targetItem = wardrobe[0]
+  const targetItem = diagnosisViewModel?.targetItem || wardrobe[0]
   const itemId = getItemValue(targetItem, 'id', 'id', '')
 
   if (!itemId) {
@@ -980,8 +1209,8 @@ function closeResaleDrawer() {
     Number(newPrice) > 0 &&
     !imageProcessing
 
-  const diagnosisDisplay = diagnosisResult
-    ? getDiagnosisDisplay(diagnosisResult)
+  const diagnosisViewModel = diagnosisResult
+    ? getDiagnosisViewModel(wardrobe, diagnosisResult)
     : null
 
   const canSubmitAuth =
@@ -1533,7 +1762,7 @@ function closeResaleDrawer() {
         </div>
       )}
 
-{isDiagnosisOpen && diagnosisResult && (
+{isDiagnosisOpen && diagnosisViewModel && (
   <div
     onClick={closeDiagnosisModal}
     className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4 py-6"
@@ -1544,7 +1773,7 @@ function closeResaleDrawer() {
 >
       <div className="rounded-3xl bg-slate-950 p-5 text-white">
         <p className="text-xs font-semibold uppercase text-emerald-300">
-          穿搭盲盒
+          衣橱资产诊断
         </p>
 
         <h2 className="mt-2 text-2xl font-bold">
@@ -1552,95 +1781,139 @@ function closeResaleDrawer() {
         </h2>
 
         <p className="mt-2 text-sm leading-6 text-slate-300">
-          系统根据 CPW、穿着次数和闲置天数，为你挑出值得重新激活的单品。
+          系统根据价格、穿着次数、闲置天数和 CPW 生成本次诊断。
         </p>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">
-            高价值
+            数据驱动
           </span>
           <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">
-            低频
+            CPW
           </span>
           <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">
-            可挽救
+            闲置诊断
           </span>
         </div>
+      </div>
+
+      {diagnosisViewModel.targetItem && (
+        <div className="mt-4 overflow-hidden rounded-3xl bg-white ring-1 ring-slate-200">
+          <div className="relative flex h-40 items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-xs text-slate-400">
+            {diagnosisViewModel.targetItem.imageUrl ? (
+              <img
+                src={diagnosisViewModel.targetItem.imageUrl}
+                alt={diagnosisViewModel.targetItem.name}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span>暂无图片</span>
+            )}
+            <span className="absolute left-3 top-3 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+              本次重点诊断单品
+            </span>
+          </div>
+
+          <div className="p-4">
+            <h3 className="truncate text-lg font-bold text-slate-950">
+              {diagnosisViewModel.targetItem.name}
+            </h3>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+              <div className="rounded-2xl bg-slate-50 p-2">
+                <p className="text-[10px] text-slate-500">价格</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {diagnosisViewModel.targetItem.priceText}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-2">
+                <p className="text-[10px] text-slate-500">穿着</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {diagnosisViewModel.targetItem.wearCount} 次
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-2">
+                <p className="text-[10px] text-slate-500">闲置</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">
+                  {diagnosisViewModel.targetItem.idleDays} 天
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-950 p-2 text-white">
+                <p className="text-[10px] text-slate-300">CPW</p>
+                <p className="mt-1 text-sm font-bold">
+                  {diagnosisViewModel.targetItem.cpwText}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className={diagnosisViewModel.statusBoxClass}>
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-xl font-bold text-slate-950">
+            状况
+          </h3>
+
+          <span className={diagnosisViewModel.badgeClass}>
+            {diagnosisViewModel.status}
+          </span>
+        </div>
+        <p className={diagnosisViewModel.statusTextClass}>
+          {diagnosisViewModel.type === 'empty'
+            ? '当前没有衣橱单品，因此不会展示重点单品或穿搭建议。'
+            : `系统已选出本次重点诊断单品：${diagnosisViewModel.targetItem.name}。`}
+        </p>
       </div>
 
       <div className="mt-4 rounded-3xl bg-slate-50 p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-xl font-bold text-slate-950">
-            {diagnosisResult.level || '状态良好'}
-          </h3>
-
-          {diagnosisDisplay && (
-            <span className={diagnosisDisplay.badgeClass}>
-              {diagnosisDisplay.label}
-            </span>
-          )}
-        </div>
-
-        <p className="mt-3 text-sm font-semibold text-slate-700">诊断标签</p>
-
-        <div className="mt-2 flex flex-wrap gap-2">
-          {(diagnosisResult.tags || []).length > 0 ? (
-            diagnosisResult.tags.map((tag) => (
-              <span
-                key={tag}
-                className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200"
-              >
-                {tag}
-              </span>
-            ))
-          ) : (
-            <span className="text-sm text-slate-500">
-  系统暂未发现明显风险，这件单品目前状态良好。
-</span>
-          )}
-        </div>
+        <p className="text-sm font-semibold text-slate-700">系统判断</p>
+        <p className="mt-2 text-base font-bold leading-6 text-slate-900">
+          {diagnosisViewModel.judgmentTitle}
+        </p>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          {diagnosisViewModel.judgment}
+        </p>
       </div>
-
-      {diagnosisDisplay && (
-        <div className="mt-4 rounded-3xl bg-red-50 p-4 ring-1 ring-red-100">
-          <p className="text-sm font-semibold text-red-800">系统判断</p>
-          <p className="mt-2 text-base font-bold text-slate-900">
-            {diagnosisDisplay.title}
-          </p>
-          <p className="mt-2 text-sm leading-6 text-red-700">
-            {diagnosisDisplay.description}
-          </p>
-        </div>
-      )}
 
       <div className="mt-4 rounded-3xl bg-slate-50 p-4">
         <p className="text-sm font-semibold text-slate-700">系统建议</p>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          {diagnosisResult.suggestion || '系统暂未发现明显闲置风险，可以继续保持当前穿着频率。'}
+          {diagnosisViewModel.suggestion}
         </p>
       </div>
 
       <div className="mt-4 rounded-3xl bg-emerald-50 p-4 ring-1 ring-emerald-100">
         <p className="text-sm font-semibold text-emerald-800">下一步行动</p>
+        {diagnosisViewModel.outfitText && (
+          <p className="mt-2 rounded-2xl bg-white px-3 py-2 text-sm font-bold text-emerald-900 ring-1 ring-emerald-100">
+            {diagnosisViewModel.outfitText}
+          </p>
+        )}
         <p className="mt-2 text-sm leading-6 text-emerald-700">
-          {diagnosisResult.nextAction || '可以继续穿着观察，也可以生成转卖文案作为备选。'}
+          {diagnosisViewModel.action}
         </p>
       </div>
       <div className="mt-5 grid gap-3">
   <button
-    onClick={closeDiagnosisModal}
+    onClick={handleDiagnosisPrimaryAction}
     className="rounded-full bg-slate-950 px-5 py-4 text-sm font-semibold text-white transition hover:bg-slate-800"
   >
-    采纳建议，明天穿这套
+    {diagnosisViewModel.primaryLabel}
   </button>
 
-  <button
-    onClick={handleGenerateResaleCopy}
-    disabled={resaleLoading}
-    className="rounded-full border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-  >
-    {resaleLoading ? '生成中……' : '放弃挽救，我要转卖'}
-  </button>
+  {diagnosisViewModel.secondaryAction && (
+    <button
+      onClick={handleDiagnosisSecondaryAction}
+      disabled={resaleLoading || resettingDemo}
+      className="rounded-full border border-slate-200 bg-white px-5 py-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+    >
+      {resaleLoading
+        ? '生成中……'
+        : resettingDemo
+          ? '重置中……'
+          : diagnosisViewModel.secondaryLabel}
+    </button>
+  )}
 </div>
     </section>
   </div>
