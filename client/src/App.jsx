@@ -579,6 +579,7 @@ function App() {
   const [saving, setSaving] = useState(false)
   const [resettingDemo, setResettingDemo] = useState(false)
   const [clearingDemo, setClearingDemo] = useState(false)
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false)
 
   const [checkingItemIds, setCheckingItemIds] = useState([])
 const [deletingItemIds, setDeletingItemIds] = useState([])
@@ -756,6 +757,7 @@ const [resaleLoading, setResaleLoading] = useState(false)
     setIsAddOpen(false)
     setIsDiagnosisOpen(false)
     setIsResaleOpen(false)
+    setIsClearConfirmOpen(false)
     setDeleteTarget(null)
   }
 
@@ -861,19 +863,12 @@ async function handleClearDemoData() {
     return
   }
 
-  const confirmed = window.confirm(
-    '这是演示功能，会清空当前衣橱数据，便于展示空衣橱诊断状态。确定要继续吗？'
-  )
-
-  if (!confirmed) {
-    return
-  }
-
   try {
     setClearingDemo(true)
 
     await clearDemoWardrobe()
     setImageErrorItemIds([])
+    setIsClearConfirmOpen(false)
     setIsDiagnosisOpen(false)
     setDiagnosisResult(null)
     setIsResaleOpen(false)
@@ -891,6 +886,22 @@ async function handleClearDemoData() {
   } finally {
     setClearingDemo(false)
   }
+}
+
+function openClearConfirm() {
+  if (clearingDemo || resettingDemo) {
+    return
+  }
+
+  setIsClearConfirmOpen(true)
+}
+
+function closeClearConfirm() {
+  if (clearingDemo) {
+    return
+  }
+
+  setIsClearConfirmOpen(false)
 }
 
 async function handleCreateItem() {
@@ -1228,7 +1239,11 @@ function closeResaleDrawer() {
 
     useEffect(() => {
   const shouldLockScroll =
-    isAddOpen || isDiagnosisOpen || isResaleOpen || Boolean(deleteTarget)
+    isAddOpen ||
+    isDiagnosisOpen ||
+    isResaleOpen ||
+    isClearConfirmOpen ||
+    Boolean(deleteTarget)
 
   const originalOverflow = document.body.style.overflow
 
@@ -1239,7 +1254,7 @@ function closeResaleDrawer() {
   return () => {
     document.body.style.overflow = originalOverflow
   }
-}, [isAddOpen, isDiagnosisOpen, isResaleOpen, deleteTarget])
+}, [isAddOpen, isDiagnosisOpen, isResaleOpen, isClearConfirmOpen, deleteTarget])
 
     const canSave =
     newName.trim() &&
@@ -1440,7 +1455,7 @@ function closeResaleDrawer() {
               </button>
 
               <button
-                onClick={handleClearDemoData}
+                onClick={openClearConfirm}
                 disabled={clearingDemo || resettingDemo}
                 className="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-red-100 disabled:text-red-300"
               >
@@ -2059,6 +2074,48 @@ function closeResaleDrawer() {
       >
         {copyLoading ? '复制中……' : '复制完整发布文案'}
       </button>
+    </section>
+  </div>
+)}
+
+{isClearConfirmOpen && (
+  <div
+    onClick={closeClearConfirm}
+    className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 px-4"
+  >
+    <section
+      onClick={(event) => event.stopPropagation()}
+      className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl ring-1 ring-white/10"
+    >
+      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-2xl text-red-700">
+        !
+      </div>
+
+      <h2 className="mt-4 text-center text-xl font-bold text-slate-900">
+        清空衣橱？
+      </h2>
+
+      <p className="mt-3 text-center text-sm leading-6 text-slate-500">
+        这是演示辅助功能。确认后会清空当前衣橱，方便展示空衣橱下的诊断结果。你可以随时点击“重置演示数据”恢复标准演示衣物。
+      </p>
+
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <button
+          onClick={closeClearConfirm}
+          disabled={clearingDemo}
+          className="rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          取消
+        </button>
+
+        <button
+          onClick={handleClearDemoData}
+          disabled={clearingDemo}
+          className="rounded-full border border-red-200 bg-red-50 px-5 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+        >
+          {clearingDemo ? '清空中...' : '确认清空'}
+        </button>
+      </div>
     </section>
   </div>
 )}
