@@ -294,6 +294,67 @@ ${description}
 建议转卖价：${suggestedPriceText}`
 }
 
+async function copyTextToClipboard(text, fallbackTextareaRef) {
+  if (!text) {
+    return 'failed'
+  }
+
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return 'copied'
+    } catch (error) {
+      console.warn('navigator.clipboard.writeText failed, trying textarea fallback', error)
+    }
+  }
+
+  let temporaryTextarea = null
+
+  try {
+    temporaryTextarea = document.createElement('textarea')
+    temporaryTextarea.value = text
+    temporaryTextarea.setAttribute('readonly', '')
+    temporaryTextarea.style.position = 'fixed'
+    temporaryTextarea.style.top = '0'
+    temporaryTextarea.style.left = '0'
+    temporaryTextarea.style.width = '1px'
+    temporaryTextarea.style.height = '1px'
+    temporaryTextarea.style.opacity = '0'
+    temporaryTextarea.style.fontSize = '16px'
+    temporaryTextarea.style.pointerEvents = 'none'
+
+    document.body.appendChild(temporaryTextarea)
+    temporaryTextarea.focus({ preventScroll: true })
+    temporaryTextarea.select()
+    temporaryTextarea.setSelectionRange(0, text.length)
+
+    if (document.execCommand('copy')) {
+      return 'copied'
+    }
+  } catch (error) {
+    console.warn('textarea copy fallback failed, trying visible textarea selection', error)
+  } finally {
+    if (temporaryTextarea) {
+      document.body.removeChild(temporaryTextarea)
+    }
+  }
+
+  const visibleTextarea = fallbackTextareaRef?.current
+
+  if (visibleTextarea) {
+    try {
+      visibleTextarea.focus()
+      visibleTextarea.select()
+      visibleTextarea.setSelectionRange(0, visibleTextarea.value.length)
+      return 'selected'
+    } catch (error) {
+      console.warn('visible textarea selection fallback failed', error)
+    }
+  }
+
+  return 'failed'
+}
+
 function toNumber(value, fallback = 0) {
   const number = Number(value)
   return Number.isFinite(number) ? number : fallback
@@ -597,6 +658,7 @@ const [resaleLoading, setResaleLoading] = useState(false)
 
   const toastTimerRef = useRef(null)
   const imageInputRef = useRef(null)
+  const resaleCopyTextareaRef = useRef(null)
 
     function showToast(message, type = 'success') {
     setToastMessage(message)
@@ -1137,14 +1199,25 @@ async function handleCopyResaleText() {
 
   const text = buildResaleCopyText(resaleCopy)
 
+  if (!text.trim()) {
+    showToast('暂无可复制的发布文案', 'error')
+    return
+  }
+
   try {
     setCopyLoading(true)
 
-    // 让“复制中……”至少可见一小会儿，避免复制太快导致用户看不见按钮状态变化
-    await sleep(500)
+    const copyResult = await copyTextToClipboard(text, resaleCopyTextareaRef)
 
-    await navigator.clipboard.writeText(text)
-    showToast('发布文案已复制，打开闲鱼即可粘贴')
+    if (copyResult === 'copied') {
+      showToast('发布文案已复制')
+    } else if (copyResult === 'selected') {
+      showToast('已选中文案，请长按复制')
+    } else {
+      showToast('复制失败，请手动复制', 'error')
+    }
+
+    await sleep(300)
   } catch (error) {
     console.error(error)
     showToast('复制失败，请手动复制', 'error')
@@ -2056,6 +2129,7 @@ function closeResaleDrawer() {
         </div>
 
         <textarea
+          ref={resaleCopyTextareaRef}
           readOnly
           value={buildResaleCopyText(resaleCopy)}
           onFocus={(event) => event.target.select()}
@@ -2063,7 +2137,7 @@ function closeResaleDrawer() {
         />
 
         <p className="mt-2 text-xs text-slate-500">
-          如果浏览器限制剪贴板权限，可以点击文本框后手动复制。
+          若一键复制受浏览器限制，系统会自动选中文案，可长按复制。
         </p>
       </div>
 
@@ -2072,7 +2146,7 @@ function closeResaleDrawer() {
         disabled={copyLoading}
         className="mt-6 w-full rounded-full bg-slate-950 px-5 py-4 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
       >
-        {copyLoading ? '复制中……' : '复制完整发布文案'}
+        {copyLoading ? '复制中……' : '复制发布文案'}
       </button>
     </section>
   </div>
