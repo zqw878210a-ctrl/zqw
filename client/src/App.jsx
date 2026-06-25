@@ -198,6 +198,8 @@ const AUTH_TOKEN_STORAGE_KEY = 'wardrobe_auth_token'
 const MAX_IMAGE_FILE_BYTES = 5 * 1024 * 1024
 const MAX_IMAGE_DATA_URL_BYTES = 800 * 1024
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const EMPTY_WARDROBE_CLEAR_MESSAGE =
+  '当前衣橱已经为空，可点击重置演示数据恢复标准演示衣物。'
 
 function getDataUrlByteSize(dataUrl) {
   return Math.ceil((dataUrl.length * 3) / 4)
@@ -925,6 +927,13 @@ async function handleClearDemoData() {
     return
   }
 
+  if (wardrobe.length === 0) {
+    setClearingDemo(false)
+    setIsClearConfirmOpen(false)
+    showToast(EMPTY_WARDROBE_CLEAR_MESSAGE)
+    return
+  }
+
   try {
     setClearingDemo(true)
 
@@ -952,6 +961,11 @@ async function handleClearDemoData() {
 
 function openClearConfirm() {
   if (clearingDemo || resettingDemo) {
+    return
+  }
+
+  if (wardrobe.length === 0) {
+    showToast(EMPTY_WARDROBE_CLEAR_MESSAGE)
     return
   }
 
