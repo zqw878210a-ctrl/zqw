@@ -1524,19 +1524,19 @@ function closeResaleDrawer() {
         </section>
 
         <section className="mt-6">
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <div>
-              <h2 className="text-xl font-bold text-slate-950">我的衣橱</h2>
-              <p className="mt-1 text-xs text-slate-500">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="whitespace-nowrap text-xl font-bold text-slate-950">我的衣橱</h2>
+              <p className="mt-1 whitespace-nowrap text-xs text-slate-500">
                 CPW、闲置天数和今日打卡
               </p>
             </div>
 
-            <div className="flex shrink-0 gap-2">
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:shrink-0 sm:flex-nowrap">
               <button
                 onClick={handleResetDemoData}
                 disabled={resettingDemo || clearingDemo}
-                className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                className="inline-flex min-w-[8rem] flex-1 items-center justify-center whitespace-nowrap rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:flex-none"
               >
                 {resettingDemo ? '重置中……' : '重置演示数据'}
               </button>
@@ -1544,17 +1544,17 @@ function closeResaleDrawer() {
               <button
                 onClick={openClearConfirm}
                 disabled={clearingDemo || resettingDemo}
-                className="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-red-100 disabled:text-red-300"
+                className="inline-flex min-w-[8rem] flex-1 items-center justify-center whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100 disabled:cursor-not-allowed disabled:bg-red-100 disabled:text-red-300 sm:flex-none"
               >
                 {clearingDemo ? '清空中……' : '清空衣橱'}
               </button>
 
               <button
-  onClick={openAddPanel}
-  className="rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800"
->
-  录入
-</button>
+                onClick={openAddPanel}
+                className="hidden rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800 sm:inline-flex"
+              >
+                录入
+              </button>
             </div>
           </div>
 
